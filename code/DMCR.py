@@ -489,9 +489,7 @@ if __name__ == '__main__':
         beh_item_list = [beh_item[shuffle_indices] for beh_item in beh_item_list]
 
         t1 = time.time()
-        loss, rec_loss, emb_loss = 0., 0., 0.
-        bpr_loss = 0.
-        ssl2_loss = 0.
+        loss, rec_loss, emb_loss, bpr_loss = 0., 0., 0., 0.
         n_batch = int(len(user_train1) / args.batch_size)
 
         for idx in range(n_batch):
