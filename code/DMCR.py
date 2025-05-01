@@ -74,8 +74,8 @@ class DMCR(tf.keras.Model):
         all_cri_embeddings_ = {}
         for i in range(self.n_criterion):
             beh = self.cris[i]
-            rela_emb = tf.reshape(self.criterion_embedding[i], (-1, self.emb_dim))
-            all_cri_embeddings_[beh] = [rela_emb]
+            cris_emb = tf.reshape(self.criterion_embedding[i], (-1, self.emb_dim))
+            all_cri_embeddings_[beh] = [cris_emb]
 
         total_mm_time = 0.
         for k in range(self.n_layers):
@@ -87,9 +87,9 @@ class DMCR(tf.keras.Model):
                 embeddings_ = tf.matmul(embeddings_, self.w_gcn)
                 
                 total_mm_time += time.time() - st
-                rela_emb = all_cri_embeddings_[self.cris[i]][k]
+                cris_emb = all_cri_embeddings_[self.cris[i]][k]
                 embeddings_ = self.leaky_relu(
-                    tf.matmul(tf.multiply(embeddings_, rela_emb), self.W_gc[k]))
+                    tf.matmul(tf.multiply(embeddings_, cris_emb), self.W_gc[k]))
                 embeddings_list.append(embeddings_)
 
             embeddings_st = tf.stack(embeddings_list, axis=1)
@@ -108,8 +108,9 @@ class DMCR(tf.keras.Model):
                 )
                 attention = tf.expand_dims(attention, axis=1)
                 attention_list.append(attention)
-                embs_cur_rela = tf.squeeze(tf.matmul(attention, embeddings_st), axis=1)
-                embeddings_list.append(embs_cur_rela)
+                embs_cur_cris = tf.squeeze(tf.matmul(attention, embeddings_st), axis=1)
+                embs_cur_cris = self.leaky_relu(embs_cur_cris)
+                embeddings_list.append(embs_cur_cris)
 
             pre_embeddings = tf.stack(embeddings_list, axis=1)
             attn = tf.concat(attention_list, axis=1)
@@ -117,8 +118,9 @@ class DMCR(tf.keras.Model):
             users_items_embeddings = users_items_embeddings + pre_embeddings
 
             for i in range(self.n_criterion):
-                rela_emb = tf.matmul(all_cri_embeddings_[self.cris[i]][k], self.W_rel[k])
-                all_cri_embeddings_[self.cris[i]].append(rela_emb)
+                cris_emb = tf.matmul(all_cri_embeddings_[self.cris[i]][k], self.W_rel[k])
+                cris_emb = self.leaky_relu(cris_emb)
+                all_cri_embeddings_[self.cris[i]].append(cris_emb)
 
         users_items_embeddings = users_items_embeddings / (self.n_layers + 1)
         users_embedding_, items_embedding_ = tf.split(users_items_embeddings, [self.n_users, self.n_items], axis=0)
