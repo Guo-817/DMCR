@@ -13,8 +13,6 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
 
-
-
 class BprLoss(tf.keras.layers.Layer):
     def __init__(self, data_config, args):
         super(BprLoss, self).__init__()
