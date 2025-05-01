@@ -303,7 +303,6 @@ def get_lables(temp_set, k=0.9999):
 
     max_item = item_lenth[int(len(item_lenth) * k) - 1]
 
-    print(max_item)
     for i in temp_set:
         if len(temp_set[i]) > max_item:
             temp_set[i] = temp_set[i][0:max_item]
@@ -433,9 +432,6 @@ if __name__ == '__main__':
     physical_devices = tf.config.list_physical_devices('GPU')
     if len(physical_devices) > 0:
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
-    print('-----------------------')
-    print(len(physical_devices))
-    print('-----------------------')
 
     set_seed(30)
 
