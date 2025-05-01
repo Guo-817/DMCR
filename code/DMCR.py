@@ -109,7 +109,6 @@ class DMCR(tf.keras.Model):
                 attention = tf.expand_dims(attention, axis=1)
                 attention_list.append(attention)
                 embs_cur_cris = tf.squeeze(tf.matmul(attention, embeddings_st), axis=1)
-                embs_cur_cris = self.leaky_relu(embs_cur_cris)
                 embeddings_list.append(embs_cur_cris)
 
             pre_embeddings = tf.stack(embeddings_list, axis=1)
@@ -119,7 +118,6 @@ class DMCR(tf.keras.Model):
 
             for i in range(self.n_criterion):
                 cris_emb = tf.matmul(all_cri_embeddings_[self.cris[i]][k], self.W_rel[k])
-                cris_emb = self.leaky_relu(cris_emb)
                 all_cri_embeddings_[self.cris[i]].append(cris_emb)
 
         users_items_embeddings = users_items_embeddings / (self.n_layers + 1)
