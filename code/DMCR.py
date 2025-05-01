@@ -12,123 +12,7 @@ from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
-class DMCR(tf.keras.Model):
-    name = 'DMCR'
 
-    def __init__(self, max_item_list, data_config, args):
-        super(DMCR, self).__init__()
-        self.max_item_list = max_item_list
-        self.n_users = data_config['n_users']
-        self.n_items = data_config['n_items']
-        self.num_nodes = self.n_users + self.n_items
-        self.pre_adjs = data_config['pre_adjs']
-        self.pre_adjs_tensor = [self._convert_sp_mat_to_sp_tensor(adj) for adj in self.pre_adjs]
-        self.cris = data_config['cris']
-        self.n_criterion = len(self.cris)
-
-        self.coefficient = tf.constant(eval(args.coefficient), shape=(1, -1), dtype=tf.float32)
-        self.emb_dim = args.embed_size
-        self.batch_size = args.batch_size
-        self.weight_size = eval(args.layer_size)
-        self.n_layers = len(self.weight_size)
-        self.mess_dropout = eval(args.mess_dropout)
-        self.nhead = args.nhead
-        self.att_dim = args.att_dim
-
-        self.criterion_embedding = tf.Variable(
-            tf.random.normal([self.n_criterion, self.emb_dim], stddev=0.01))
-        self.w_gcn = tf.Variable(
-            tf.random.normal([self.emb_dim, self.emb_dim], stddev=0.01))
-        
-        self.user_embedding = tf.Variable(
-            tf.random.normal([self.n_users, self.n_criterion, self.emb_dim], stddev=0.01))
-        self.item_embedding = tf.Variable(
-            tf.random.normal([self.n_items, self.n_criterion, self.emb_dim], stddev=0.01))
-
-        self.weight_size_list = [self.emb_dim] + self.weight_size
-
-        self.W_gc = []
-        self.W_rel = []
-        for k in range(self.n_layers):
-            self.W_gc.append(tf.Variable(
-                tf.random.normal([self.weight_size_list[k], self.weight_size_list[k+1]], stddev=0.01)))
-            self.W_rel.append(tf.Variable(
-                tf.random.normal([self.weight_size_list[k], self.weight_size_list[k+1]], stddev=0.01)))
-
-        self.trans_weights_s1 = tf.Variable(
-            tf.random.normal([self.n_criterion, self.emb_dim, self.att_dim], stddev=0.01))
-        self.trans_weights_s2 = tf.Variable(
-            tf.random.normal([self.n_criterion, self.att_dim, 1], stddev=0.01))
-        
-        self.dropout = tf.keras.layers.Dropout(self.mess_dropout[0])
-        self.leaky_relu = tf.keras.layers.LeakyReLU()
-
-    def _convert_sp_mat_to_sp_tensor(self, X):
-        coo = X.tocoo()
-        indices = np.mat([coo.row, coo.col]).transpose()
-        return tf.SparseTensor(indices, coo.data, coo.shape)
-
-    def call(self, sub_mats, training=False):
-        pre_embeddings = tf.concat([self.user_embedding, self.item_embedding], axis=0)
-        users_items_embeddings = pre_embeddings
-        all_cri_embeddings_ = {}
-        for i in range(self.n_criterion):
-            beh = self.cris[i]
-            cris_emb = tf.reshape(self.criterion_embedding[i], (-1, self.emb_dim))
-            all_cri_embeddings_[beh] = [cris_emb]
-
-        total_mm_time = 0.
-        for k in range(self.n_layers):
-            embeddings_list = []
-            for i in range(self.n_criterion):
-                st = time.time()
-                
-                embeddings_ = tf.sparse.sparse_dense_matmul(self.pre_adjs_tensor[i], pre_embeddings[:, i, :])
-                embeddings_ = tf.matmul(embeddings_, self.w_gcn)
-                
-                total_mm_time += time.time() - st
-                cris_emb = all_cri_embeddings_[self.cris[i]][k]
-                embeddings_ = self.leaky_relu(
-                    tf.matmul(tf.multiply(embeddings_, cris_emb), self.W_gc[k]))
-                embeddings_list.append(embeddings_)
-
-            embeddings_st = tf.stack(embeddings_list, axis=1)
-            embeddings_list = []
-            attention_list = []
-            for i in range(self.n_criterion):
-                attention = tf.nn.softmax(
-                    tf.squeeze(
-                        tf.matmul(
-                            tf.tanh(tf.matmul(embeddings_st, self.trans_weights_s1[i])),
-                            self.trans_weights_s2[i]
-                        ),
-                        axis=2
-                    ),
-                    axis=1
-                )
-                attention = tf.expand_dims(attention, axis=1)
-                attention_list.append(attention)
-                embs_cur_cris = tf.squeeze(tf.matmul(attention, embeddings_st), axis=1)
-                embeddings_list.append(embs_cur_cris)
-
-            pre_embeddings = tf.stack(embeddings_list, axis=1)
-            attn = tf.concat(attention_list, axis=1)
-            pre_embeddings = self.dropout(pre_embeddings, training=training)
-            users_items_embeddings = users_items_embeddings + pre_embeddings
-
-            for i in range(self.n_criterion):
-                cris_emb = tf.matmul(all_cri_embeddings_[self.cris[i]][k], self.W_rel[k])
-                all_cri_embeddings_[self.cris[i]].append(cris_emb)
-
-        users_items_embeddings = users_items_embeddings / (self.n_layers + 1)
-        users_embedding_, items_embedding_ = tf.split(users_items_embeddings, [self.n_users, self.n_items], axis=0)
-        token_embedding = tf.zeros([1, self.n_criterion, self.emb_dim], dtype=tf.float32)
-        items_embedding_ = tf.concat([items_embedding_, token_embedding], axis=0)
-
-        for i in range(self.n_criterion):
-            all_cri_embeddings_[self.cris[i]] = tf.reduce_mean(tf.stack(all_cri_embeddings_[self.cris[i]], axis=0), axis=0)
-
-        return users_embedding_, items_embedding_, all_cri_embeddings_
 
 
 class BprLoss(tf.keras.layers.Layer):
@@ -249,6 +133,7 @@ class BprLoss(tf.keras.layers.Layer):
         return bpr_loss
 
 
+
 class RecLoss(tf.keras.layers.Layer):
     def __init__(self, data_config, args):
         super(RecLoss, self).__init__()
@@ -290,6 +175,124 @@ class RecLoss(tf.keras.layers.Layer):
 
         return loss, emb_loss
 
+class DMCR(tf.keras.Model):
+    name = 'DMCR'
+
+    def __init__(self, max_item_list, data_config, args):
+        super(DMCR, self).__init__()
+        self.max_item_list = max_item_list
+        self.n_users = data_config['n_users']
+        self.n_items = data_config['n_items']
+        self.num_nodes = self.n_users + self.n_items
+        self.pre_adjs = data_config['pre_adjs']
+        self.pre_adjs_tensor = [self._convert_sp_mat_to_sp_tensor(adj) for adj in self.pre_adjs]
+        self.cris = data_config['cris']
+        self.n_criterion = len(self.cris)
+
+        self.coefficient = tf.constant(eval(args.coefficient), shape=(1, -1), dtype=tf.float32)
+        self.emb_dim = args.embed_size
+        self.batch_size = args.batch_size
+        self.weight_size = eval(args.layer_size)
+        self.n_layers = len(self.weight_size)
+        self.mess_dropout = eval(args.mess_dropout)
+        self.nhead = args.nhead
+        self.att_dim = args.att_dim
+
+        self.criterion_embedding = tf.Variable(
+            tf.random.normal([self.n_criterion, self.emb_dim], stddev=0.01))
+        self.w_gcn = tf.Variable(
+            tf.random.normal([self.emb_dim, self.emb_dim], stddev=0.01))
+        
+        self.user_embedding = tf.Variable(
+            tf.random.normal([self.n_users, self.n_criterion, self.emb_dim], stddev=0.01))
+        self.item_embedding = tf.Variable(
+            tf.random.normal([self.n_items, self.n_criterion, self.emb_dim], stddev=0.01))
+
+        self.weight_size_list = [self.emb_dim] + self.weight_size
+
+        self.W_gc = []
+        self.W_rel = []
+        for k in range(self.n_layers):
+            self.W_gc.append(tf.Variable(
+                tf.random.normal([self.weight_size_list[k], self.weight_size_list[k+1]], stddev=0.01)))
+            self.W_rel.append(tf.Variable(
+                tf.random.normal([self.weight_size_list[k], self.weight_size_list[k+1]], stddev=0.01)))
+
+        self.trans_weights_s1 = tf.Variable(
+            tf.random.normal([self.n_criterion, self.emb_dim, self.att_dim], stddev=0.01))
+        self.trans_weights_s2 = tf.Variable(
+            tf.random.normal([self.n_criterion, self.att_dim, 1], stddev=0.01))
+        
+        self.dropout = tf.keras.layers.Dropout(self.mess_dropout[0])
+        self.leaky_relu = tf.keras.layers.LeakyReLU()
+
+    def _convert_sp_mat_to_sp_tensor(self, X):
+        coo = X.tocoo()
+        indices = np.mat([coo.row, coo.col]).transpose()
+        return tf.SparseTensor(indices, coo.data, coo.shape)
+
+    def call(self, sub_mats, training=False):
+        pre_embeddings = tf.concat([self.user_embedding, self.item_embedding], axis=0)
+        users_items_embeddings = pre_embeddings
+        all_cri_embeddings_ = {}
+        for i in range(self.n_criterion):
+            beh = self.cris[i]
+            cris_emb = tf.reshape(self.criterion_embedding[i], (-1, self.emb_dim))
+            all_cri_embeddings_[beh] = [cris_emb]
+
+        total_mm_time = 0.
+        for k in range(self.n_layers):
+            embeddings_list = []
+            for i in range(self.n_criterion):
+                st = time.time()
+                
+                embeddings_ = tf.sparse.sparse_dense_matmul(self.pre_adjs_tensor[i], pre_embeddings[:, i, :])
+                embeddings_ = tf.matmul(embeddings_, self.w_gcn)
+                
+                total_mm_time += time.time() - st
+                cris_emb = all_cri_embeddings_[self.cris[i]][k]
+                embeddings_ = self.leaky_relu(
+                    tf.matmul(tf.multiply(embeddings_, cris_emb), self.W_gc[k]))
+                embeddings_list.append(embeddings_)
+
+            embeddings_st = tf.stack(embeddings_list, axis=1)
+            embeddings_list = []
+            attention_list = []
+            for i in range(self.n_criterion):
+                attention = tf.nn.softmax(
+                    tf.squeeze(
+                        tf.matmul(
+                            tf.tanh(tf.matmul(embeddings_st, self.trans_weights_s1[i])),
+                            self.trans_weights_s2[i]
+                        ),
+                        axis=2
+                    ),
+                    axis=1
+                )
+                attention = tf.expand_dims(attention, axis=1)
+                attention_list.append(attention)
+                embs_cur_cris = tf.squeeze(tf.matmul(attention, embeddings_st), axis=1)
+                embeddings_list.append(embs_cur_cris)
+
+            pre_embeddings = tf.stack(embeddings_list, axis=1)
+            attn = tf.concat(attention_list, axis=1)
+            pre_embeddings = self.dropout(pre_embeddings, training=training)
+            users_items_embeddings = users_items_embeddings + pre_embeddings
+
+            for i in range(self.n_criterion):
+                cris_emb = tf.matmul(all_cri_embeddings_[self.cris[i]][k], self.W_rel[k])
+                all_cri_embeddings_[self.cris[i]].append(cris_emb)
+
+        users_items_embeddings = users_items_embeddings / (self.n_layers + 1)
+        users_embedding_, items_embedding_ = tf.split(users_items_embeddings, [self.n_users, self.n_items], axis=0)
+        token_embedding = tf.zeros([1, self.n_criterion, self.emb_dim], dtype=tf.float32)
+        items_embedding_ = tf.concat([items_embedding_, token_embedding], axis=0)
+
+        for i in range(self.n_criterion):
+            all_cri_embeddings_[self.cris[i]] = tf.reduce_mean(tf.stack(all_cri_embeddings_[self.cris[i]], axis=0), axis=0)
+
+        return users_embedding_, items_embedding_, all_cri_embeddings_
+        
 
 def get_lables(temp_set, k=0.9999):
     max_item = 0
