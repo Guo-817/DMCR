@@ -4,5 +4,5 @@ This repository contains the DMCR implemented by PyTorch, which is a multi-crite
 
 ## Environment Requirements
 
-- Python Version: 3.8.0
+- Python Version: 3.7.0
 - PyTorch Version: 1.10.0
