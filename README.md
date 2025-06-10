@@ -1,6 +1,6 @@
 ## Causal Inference for Alleviating Confounding Bias in Multi-Criteria Rating Recommendation
 
-This repository contains the DMCR implemented by PyTorch, which is a multi-criteria recommendation model based on causal inference.
+This repository contains the DMCR implemented by PyTorch, which is a multi-criteria recommendation model.
 
 ## Environment Requirements
 
